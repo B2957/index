@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <!-- [优化] 禁止用户缩放，适配移动端视口 -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Christmas - Mobile Edition</title>
+    <!-- 禁止缩放 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Christmas Mobile - Native Camera</title>
     <style>
         :root {
             --bg-color: #020a07;
@@ -16,8 +16,8 @@
             background-color: var(--bg-color);
             font-family: sans-serif;
             color: var(--gold-color);
-            /* [优化] 禁止手机端的选中、长按菜单 */
             user-select: none;
+            -webkit-user-select: none;
             -webkit-touch-callout: none;
         }
         #canvas-container {
@@ -25,23 +25,23 @@
             top: 0; left: 0; width: 100vw; height: 100vh;
             z-index: 1;
         }
-        .input_video { display: none; }
+        /* 隐藏视频元素，我们只需要它的数据 */
+        .input_video { 
+            position: absolute; 
+            top: 0; left: 0; 
+            opacity: 0; 
+            pointer-events: none; 
+            width: 1px; height: 1px;
+        }
         #ui-layer {
             position: absolute;
-            top: 15px; left: 0; right: 0; /* 居中显示 */
+            top: 15px; left: 0; right: 0;
             z-index: 10;
             display: flex;
             flex-direction: column;
-            align-items: center; /* 手机端居中更好看 */
+            align-items: center;
             gap: 10px;
-            pointer-events: none; /* 让点击穿透，不影响体验 */
-        }
-        h1 {
-            margin: 0;
-            font-weight: 300;
-            font-size: 1.1rem; /* 字体改小 */
-            border-bottom: 1px solid var(--gold-color);
-            text-shadow: 0 0 10px rgba(212, 175, 55, 0.4);
+            pointer-events: none;
         }
         .status-box {
             background: rgba(5, 20, 14, 0.6);
@@ -65,13 +65,23 @@
             z-index: 20;
             color: var(--gold-color);
             text-align: center;
-            width: 80%;
+            width: 90%;
+        }
+        #btn-start {
+            margin-top: 20px;
+            padding: 10px 30px;
+            background: var(--gold-color);
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            font-size: 1rem;
+            cursor: pointer;
+            pointer-events: auto; /* 允许点击 */
+            display: none; /* 初始隐藏 */
         }
     </style>
     
-    <!-- MediaPipe 库 -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <!-- MediaPipe (只保留 Hands，不再需要 camera_utils) -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <!-- Three.js -->
@@ -87,19 +97,22 @@
 <body>
 
     <div id="loading">
-        <h2 style="font-weight:300;">INITIALIZING</h2>
-        <div style="font-size:0.8rem; opacity:0.7;">
-            请允许摄像头权限<br>Please Allow Camera
-        </div>
+        <h2 style="font-weight:300;">INITIALIZING...</h2>
+        <div id="loading-text" style="font-size:0.8rem; opacity:0.7;">Prepare Assets</div>
+        <!-- iOS 必须由用户手势触发视频播放 -->
+        <button id="btn-start">Start Camera</button>
+        <div id="error-msg" style="color:red; margin-top:10px; display:none;"></div>
     </div>
 
     <div id="ui-layer">
-        <h1>Merry Christmas</h1>
-        <div class="status-box" id="gesture-status">Loading...</div>
+        <div class="status-box" id="gesture-status">Wait...</div>
     </div>
 
     <div id="canvas-container"></div>
-    <video class="input_video" playsinline webkit-playsinline></video>
+    
+    <!-- 必须设置 playsinline 否则 iOS 会全屏播放干扰画面 -->
+    <video class="input_video" playsinline webkit-playsinline muted autoplay></video>
+    
     <canvas id="helper-canvas" style="display:none;"></canvas>
 
     <script type="module">
@@ -108,44 +121,42 @@
         import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-        // --- 手机端配置优化 ---
+        // --- 配置 ---
         const CONFIG = {
-            // [优化] 减少粒子数以保证手机流畅度 (2.5w -> 1.2w)
             particleCount: 12000, 
-            // [优化] 增大粒子尺寸，弥补数量减少后的视觉空缺
             particleSize: 3.5,    
             bloomStrength: 1.2,
             bloomRadius: 0.5,
             bloomThreshold: 0.2,
-            baseSpeed: 0.03,
-            explodeSpeed: 0.08, 
-            reassembleSpeed: 0.02,
-            // [优化] 树变瘦一点，适合竖屏
+            baseSpeed: 0.04,
+            explodeSpeed: 0.09, 
+            reassembleSpeed: 0.03,
             treeHeight: 110,
             treeRadius: 35, 
             defaultCamZ: 180
         };
 
+        // ... ThreeJS 变量 ...
         let scene, camera, renderer, composer;
         let particleSystem, particleGeometry;
-        let currentPositions, targetPositions;
-        let currentColors, targetColors;
+        let currentPositions, targetPositions, currentColors, targetColors;
         let currentState = 'TREE'; 
-
         let photoCache = []; 
         let currentPhotoIndex = -1;
-        
         let isHandOpen = false;
         let previousHandState = false;
         let activeTransitionSpeed = CONFIG.baseSpeed;
 
         const statusEl = document.getElementById('gesture-status');
         const loadingEl = document.getElementById('loading');
+        const startBtn = document.getElementById('btn-start');
+        const errorMsg = document.getElementById('error-msg');
+        const videoElement = document.querySelector('.input_video');
 
-        // --- 自动生成的演示图片 ---
+        // --- 演示图片生成 ---
         function createPlaceholderImage(text) {
             const cvs = document.createElement('canvas');
-            cvs.width = 300; cvs.height = 400; // [优化] 改为竖版比例
+            cvs.width = 300; cvs.height = 400;
             const ctx = cvs.getContext('2d');
             ctx.fillStyle = '#000000';
             ctx.fillRect(0,0,300,400); 
@@ -155,7 +166,7 @@
             ctx.arc(150, 200, 130, 0, Math.PI * 2);
             ctx.stroke();
             ctx.fillStyle = '#D4AF37'; 
-            ctx.font = 'bold 60px sans-serif'; // 字体缩小
+            ctx.font = 'bold 60px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(text, 150, 200);
@@ -163,23 +174,21 @@
         }
 
         const CUSTOM_IMAGES = [
-            createPlaceholderImage("陈雨豪"),
-            //createPlaceholderImage("Xmas"),
-            // 在这里加入你的照片 Base64
+            createPlaceholderImage("Merry"),
+            createPlaceholderImage("Xmas"),
+            createPlaceholderImage("2024")
         ];
 
+        // --- 初始化 ThreeJS ---
         function initThree() {
             const container = document.getElementById('canvas-container');
-
             scene = new THREE.Scene();
             scene.fog = new THREE.FogExp2(0x020a07, 0.003);
-
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 1000);
             camera.position.set(0, 0, CONFIG.defaultCamZ);
 
             renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            // [优化] 限制像素比，防止高分屏手机发热卡顿
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
             container.appendChild(renderer.domElement);
 
@@ -193,9 +202,6 @@
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            // [优化] 手机端不需要 OrbitControls 的鼠标交互，保持画面稳定
-            // 简单的自旋转逻辑将在 animate 中实现
-            
             window.addEventListener('resize', onWindowResize);
             initParticles();
         }
@@ -256,13 +262,12 @@
                 positions[i3+1] = y;
                 positions[i3+2] = r * Math.sin(theta);
 
-                // 简单的红绿金配色
                 const rand = Math.random();
-                if (rand > 0.95) { // 金
+                if (rand > 0.95) { 
                     colors[i3] = 1.0; colors[i3+1] = 0.8; colors[i3+2] = 0.2; 
-                } else if (rand > 0.9) { // 红
+                } else if (rand > 0.9) { 
                     colors[i3] = 0.8; colors[i3+1] = 0.1; colors[i3+2] = 0.1;
-                } else { // 绿
+                } else { 
                     const val = 0.05 + Math.random() * 0.15;
                     colors[i3] = 0.05; colors[i3+1] = val; colors[i3+2] = 0.05;
                 }
@@ -272,19 +277,15 @@
         function extractPixelDataFromImage(img) {
             const canvas = document.getElementById('helper-canvas');
             const ctx = canvas.getContext('2d');
-            
             const aspect = img.width / img.height;
-            // [优化] 增大取样高度，保证图像在手机上足够大
             const targetH = 180; 
             const targetW = Math.round(targetH * aspect);
-            
             canvas.width = targetW;
             canvas.height = targetH;
             ctx.drawImage(img, 0, 0, targetW, targetH);
-            
             const data = ctx.getImageData(0, 0, targetW, targetH).data;
             const validPixels = [];
-            const colorBooster = 1.5; // [优化] 手机屏幕通常更亮，增强粒子亮度
+            const colorBooster = 1.5;
 
             for(let y=0; y<targetH; y++){
                 for(let x=0; x<targetW; x++){
@@ -305,9 +306,6 @@
 
         function applyCachedDataToParticles(pixelData) {
             const count = CONFIG.particleCount;
-            // 随机打乱索引，让过度更自然
-            const indices = Array.from({length: count}, (_, i) => i);
-            
             for (let i = 0; i < count; i++) {
                 const i3 = i*3;
                 if (i < pixelData.length) {
@@ -317,7 +315,6 @@
                     targetPositions[i3+2] = 0;
                     targetColors[i3] = p.r; targetColors[i3+1] = p.g; targetColors[i3+2] = p.b;
                 } else {
-                    // 星空背景，范围稍微大一点
                     targetPositions[i3] = (Math.random()-0.5)*300;
                     targetPositions[i3+1] = (Math.random()-0.5)*400;
                     targetPositions[i3+2] = (Math.random()-0.5)*100 - 50;
@@ -327,10 +324,7 @@
         }
 
         function loadCustomPhotos() {
-            if (CUSTOM_IMAGES.length === 0) return;
-            statusEl.innerHTML = "Processing Assets...";
             let loadedCount = 0;
-
             CUSTOM_IMAGES.forEach((src) => {
                 const img = new Image();
                 img.crossOrigin = "Anonymous";
@@ -339,8 +333,9 @@
                     if (pixelData.length > 0) photoCache.push(pixelData);
                     loadedCount++;
                     if (loadedCount === CUSTOM_IMAGES.length) {
-                        // [优化] 手机端提示不同
-                        statusEl.innerHTML = "Ready<br><small>Show 'Open Hand'</small>";
+                        // 显示开始按钮供用户手动触发
+                        document.getElementById('loading-text').style.display = 'none';
+                        startBtn.style.display = 'inline-block';
                     }
                 };
                 img.src = src;
@@ -349,10 +344,8 @@
 
         function animate() {
             requestAnimationFrame(animate);
-
             const pos = particleGeometry.attributes.position.array;
             const col = particleGeometry.attributes.color.array;
-            
             for (let i = 0; i < CONFIG.particleCount * 3; i++) {
                 pos[i] += (targetPositions[i] - pos[i]) * activeTransitionSpeed;
                 col[i] += (targetColors[i] - col[i]) * activeTransitionSpeed;
@@ -360,16 +353,12 @@
             particleGeometry.attributes.position.needsUpdate = true;
             particleGeometry.attributes.color.needsUpdate = true;
 
-            // [优化] 自动旋转逻辑，不依赖鼠标
             if (currentState === 'TREE') {
-                 particleSystem.rotation.y += 0.005; // 只有树在转
+                 particleSystem.rotation.y += 0.005;
             } else {
-                 // 照片模式缓慢摆动
                  particleSystem.rotation.y = Math.sin(Date.now() * 0.001) * 0.1;
                  particleSystem.rotation.x = 0;
                  particleSystem.rotation.z = 0;
-                 
-                 // 相机平稳过渡
                  camera.position.x += (0 - camera.position.x) * 0.05;
                  camera.position.y += (0 - camera.position.y) * 0.05;
                  camera.position.z += (CONFIG.defaultCamZ - camera.position.z) * 0.05;
@@ -380,17 +369,16 @@
         }
 
         function onResults(results) {
-            loadingEl.style.display = 'none';
+            // 检测到手势结果后隐藏 Loading UI
+            if(loadingEl.style.display !== 'none') {
+                loadingEl.style.display = 'none';
+            }
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const lm = results.multiHandLandmarks[0];
-                // 简单的手势判定：大拇指指尖到食指指尖的距离
                 const thumb = lm[4];
                 const index = lm[8];
-                const pinky = lm[20];
                 const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-                
-                // [优化] 手机摄像头距离也许较远，判定阈值放宽
                 const isOpen = (dist > 0.08); 
 
                 if (isOpen) {
@@ -398,15 +386,12 @@
                     if (!previousHandState && photoCache.length > 0) { 
                         nextPhoto(); 
                         currentState = 'PHOTO';
-                        
-                        // [优化] 手机震动反馈 (如果设备支持)
                         if (navigator.vibrate) navigator.vibrate(50);
                     }
                 } else {
                     isHandOpen = false;
                     statusEl.innerHTML = "State: <b>FIST</b>";
                     statusEl.classList.remove('active');
-                    
                     if (previousHandState) {
                         currentState = 'TREE';
                         generateTreeTargets(); 
@@ -414,7 +399,7 @@
                 }
                 previousHandState = isHandOpen;
             } else {
-                statusEl.innerHTML = "Show Hand to Camera";
+                statusEl.innerHTML = "Show Hand";
                 statusEl.classList.remove('active');
             }
         }
@@ -422,17 +407,12 @@
         function nextPhoto() {
             if (photoCache.length === 0) return;
             currentPhotoIndex = (currentPhotoIndex + 1) % photoCache.length;
-            
             statusEl.innerHTML = `Memory ${currentPhotoIndex + 1}`;
             statusEl.classList.add('active');
-
             activeTransitionSpeed = CONFIG.explodeSpeed;
-            // 爆炸散开
             for(let i=0; i<CONFIG.particleCount * 3; i++) {
                 targetPositions[i] = (Math.random() - 0.5) * 600; 
             }
-
-            // 聚合成照片
             setTimeout(() => {
                 if (currentState === 'PHOTO') {
                     activeTransitionSpeed = CONFIG.reassembleSpeed;
@@ -449,29 +429,66 @@
             composer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        const videoElement = document.getElementsByClassName('input_video')[0];
+        // ==========================================
+        // 关键修复：完全重写摄像头调用逻辑
+        // 放弃 CameraUtils，使用原生 getUserMedia
+        // ==========================================
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        
-        // [优化] 使用 Lite 模型，降低对手机 CPU 的负担
         hands.setOptions({
             maxNumHands: 1,
-            modelComplexity: 0, 
+            modelComplexity: 0, // Lite 模型
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
         hands.onResults(onResults);
 
-        // [重要] 初始化摄像头时明确指定 'facingMode: user' 可能无效，
-        // 但 MediaPipe 默认通常是前置。如果反了，需要手动翻转。
-        const cameraUtils = new Camera(videoElement, {
-            onFrame: async () => await hands.send({image: videoElement}),
-            width: 480, height: 640 // [优化] 竖屏分辨率
-        });
+        // 检测循环
+        async function detectionLoop() {
+            if (videoElement.paused || videoElement.ended) return;
+            await hands.send({image: videoElement});
+            requestAnimationFrame(detectionLoop);
+        }
+
+        async function startCamera() {
+            startBtn.innerText = "Requesting...";
+            startBtn.disabled = true;
+
+            // 宽容的约束条件：只要求前置，不强制分辨率，使用 'ideal' 让浏览器自己选
+            const constraints = {
+                audio: false,
+                video: {
+                    facingMode: "user", // 尝试前置
+                    width: { ideal: 480 },  // 只是建议，不是强制
+                    height: { ideal: 640 }
+                }
+            };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = stream;
+                
+                // 监听视频数据加载完成
+                videoElement.onloadeddata = () => {
+                    statusEl.innerHTML = "Camera Active";
+                    detectionLoop(); // 开始循环
+                };
+                
+                // 必须显式播放
+                await videoElement.play();
+
+            } catch (err) {
+                console.error("Camera Error:", err);
+                errorMsg.style.display = "block";
+                errorMsg.innerText = "Error: " + err.name + "\n请检查 HTTPS 权限";
+                statusEl.innerHTML = "Camera Failed";
+            }
+        }
+
+        // 绑定按钮事件（iOS Safari 要求必须用户点击才能启动视频流）
+        startBtn.addEventListener('click', startCamera);
 
         initThree();
         animate();
-        // 延迟启动摄像头，给 Three.js 初始化留时间
-        setTimeout(() => cameraUtils.start(), 1500);
 
     </script>
 </body>
