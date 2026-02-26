@@ -123,8 +123,8 @@
 
         // --- 配置 ---
         const CONFIG = {
-            particleCount: 50000, 
-            particleSize: 1.5,    
+            particleCount: 25000, 
+            particleSize: 3.0,    
             bloomStrength: 0.1,
             bloomRadius: 0.5,
             bloomThreshold: 0.3,
@@ -278,14 +278,14 @@
             const canvas = document.getElementById('helper-canvas');
             const ctx = canvas.getContext('2d');
             const aspect = img.width / img.height;
-            const targetH = 300; 
+            const targetH = 200; 
             const targetW = Math.round(targetH * aspect);
             canvas.width = targetW;
             canvas.height = targetH;
             ctx.drawImage(img, 0, 0, targetW, targetH);
             const data = ctx.getImageData(0, 0, targetW, targetH).data;
             const validPixels = [];
-            const colorBooster = 1.8;
+            const colorBooster = 1;
 
             for(let y=0; y<targetH; y++){
                 for(let x=0; x<targetW; x++){
