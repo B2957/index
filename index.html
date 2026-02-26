@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <!-- 禁止缩放 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Christmas Mobile - Native Camera</title>
+    <title>HXJ</title>
     <style>
         :root {
             --bg-color: #020a07;
@@ -49,7 +49,7 @@
             padding: 8px 15px;
             border-radius: 20px;
             text-align: center;
-            font-size: 0.9rem;
+            font-size: 0.5rem;
             backdrop-filter: blur(4px);
             transition: all 0.3s;
         }
@@ -278,7 +278,7 @@
             const canvas = document.getElementById('helper-canvas');
             const ctx = canvas.getContext('2d');
             const aspect = img.width / img.height;
-            const targetH = 180; 
+            const targetH = 512; 
             const targetW = Math.round(targetH * aspect);
             canvas.width = targetW;
             canvas.height = targetH;
