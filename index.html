@@ -313,7 +313,7 @@
                     targetPositions[i3] = p.x;
                     targetPositions[i3+1] = p.y;
                     targetPositions[i3+2] = 0;
-                    targetColors[i3] = p.r; targetColors[i3+1] = p.g; targetColors[i3+2] = p.b;
+                    targetColors[i3] = Math.min(1, p.r * 1.5); targetColors[i3+1] =Math.min(1, p.g * 1.5);; targetColors[i3+2] =Math.min(1, p.b * 1.5);;
                 } else {
                     targetPositions[i3] = (Math.random()-0.5)*300;
                     targetPositions[i3+1] = (Math.random()-0.5)*400;
